@@ -1,7 +1,7 @@
 # Receipt Validator SDK
 
 <p align="center">
-  <img src="images/logo_160x160.png" />
+  <img src="Images/logo_160x160.png" />
 </p>
 
 A sample project for the Unity game engine, that contains fully working in-app purchase implementations including server-side receipt validation for the Apple App Store and Google Play. The [Receipt Validator Service](https://flobuk.com/validator) is a fully hosted solution, so you do not have to manage your own server or keep track of transactions and App Store API changes. The service offers a FREE plan to get started. 
@@ -23,7 +23,7 @@ A sample project for the Unity game engine, that contains fully working in-app p
 
 ## Project Setup
 
-**Google Play**: You should have created a [Google Play Developer Account](https://play.google.com/apps/publish/signup/), added an application and created in-app purchases for it.
+**Google Play**: You should have created a [Google Play Developer Account](https://play.google.com/apps/publish/signup/), added an application and created in-app purchases for it.  
 **Apple App Store**: You should have enrolled in the [Apple Developer Program](https://developer.apple.com/programs/enroll/), added an application and created in-app purchases for it.
 
 - Verify that your project's Package Name matches your App Store's bundle identifier in `Edit > Project Settings > Player > Other Settings > Identification > Package Name`.
