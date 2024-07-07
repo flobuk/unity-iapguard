@@ -4,7 +4,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using SimpleJSON;
 
-namespace FLOBUK.ReceiptValidator.Demo
+namespace FLOBUK.IAPGUARD.Demo
 {
     /// <summary>
     /// Displays Server and Validation responses.
@@ -41,7 +41,7 @@ namespace FLOBUK.ReceiptValidator.Demo
             if (!instance) return;
 
             //subscribe to callbacks
-            ReceiptValidator.inventoryCallback += InventoryRetrieved;
+            IAPGuard.inventoryCallback += InventoryRetrieved;
             IAPManager.purchaseCallback += PurchaseResult;
             IAPManager.debugCallback += PrintMessage;
 
@@ -49,12 +49,12 @@ namespace FLOBUK.ReceiptValidator.Demo
         }
 
 
-        //ReceiptValidator.inventoryCallback
+        //IAPGuard.inventoryCallback
         void InventoryRetrieved()
         {
             PrintMessage(Color.green, "Inventory retrieved.");
 
-            Dictionary<string, PurchaseResponse> inventory = ReceiptValidator.Instance.GetInventory();
+            Dictionary<string, PurchaseResponse> inventory = IAPGuard.Instance.GetInventory();
             foreach (string productID in inventory.Keys)
                 PrintMessage(Color.white, productID + ": " + inventory[productID].ToString());
 
@@ -79,7 +79,7 @@ namespace FLOBUK.ReceiptValidator.Demo
         }
 
 
-        //trigger sending receipts to the validator backend again
+        //trigger sending receipts to the IAPGUARD backend again
         public void RestoreTransactions()
         {
             IAPManager.GetInstance().RestoreTransactions();
@@ -149,21 +149,21 @@ namespace FLOBUK.ReceiptValidator.Demo
         //try to get inventory
         public void GetInventory()
         {
-            if(!ReceiptValidator.Instance.CanRequestInventory())
+            if(!IAPGuard.Instance.CanRequestInventory())
             {
                 PrintMessage(Color.red, "Inventory call is not possible. If you are on a paid plan, check your selected Inventory Request Type.");
                 return;
             }
 
-            ReceiptValidator.Instance.RequestInventory();
+            IAPGuard.Instance.RequestInventory();
         }
 
 
         //update graphical display of text contents with current states
         void UpdateUI()
         {
-            NonConsumableFlag.SetActive(ReceiptValidator.Instance.IsPurchased(instance.nonconsumableProductId));
-            SubscriptionFlag.SetActive(ReceiptValidator.Instance.IsPurchased(instance.subscriptionProductId));
+            NonConsumableFlag.SetActive(IAPGuard.Instance.IsPurchased(instance.nonconsumableProductId));
+            SubscriptionFlag.SetActive(IAPGuard.Instance.IsPurchased(instance.subscriptionProductId));
         }
     }
 }

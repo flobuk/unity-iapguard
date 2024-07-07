@@ -2,7 +2,7 @@ using SimpleJSON;
 using System;
 using UnityEngine;
 
-namespace FLOBUK.ReceiptValidator.Demo
+namespace FLOBUK.IAPGUARD.Demo
 {
     using Unity.Services.Core;
     using UnityEngine.Purchasing;
@@ -85,11 +85,11 @@ namespace FLOBUK.ReceiptValidator.Demo
             this.controller = controller;
             this.extensions = extensions;
 
-            //initialize ReceiptValidator
-            ReceiptValidator.Instance.Initialize(controller, builder);
-            ReceiptValidator.purchaseCallback += OnPurchaseResult;
+            //initialize IAPGUARD
+            IAPGuard.Instance.Initialize(controller, builder);
+            IAPGuard.purchaseCallback += OnPurchaseResult;
             //if you are making use of user inventory
-            ReceiptValidator.Instance.RequestInventory();
+            IAPGuard.Instance.RequestInventory();
         }
 
 
@@ -99,7 +99,7 @@ namespace FLOBUK.ReceiptValidator.Demo
             Product product = args.purchasedProduct;
 
             //do validation, the magic happens here!
-            PurchaseState state = ReceiptValidator.Instance.RequestPurchase(product);
+            PurchaseState state = IAPGuard.Instance.RequestPurchase(product);
             //handle what happens with the product next
             switch (state)
             {
@@ -110,8 +110,8 @@ namespace FLOBUK.ReceiptValidator.Demo
                     break;
 
                 //transaction is pending or about to be validated on the server
-                //it is important to return pending to leave the transaction open for the ReceiptValidator
-                //the ReceiptValidator will fire its purchaseCallback when done processing
+                //it is important to return pending to leave the transaction open for IAPGUARD
+                //IAPGUARD will fire its purchaseCallback when done processing
                 case PurchaseState.Pending: 
                     DebugLogText(Color.white, "Product purchase '" + product.definition.storeSpecificId + "' is pending.");
                     return PurchaseProcessingResult.Pending;
@@ -147,7 +147,7 @@ namespace FLOBUK.ReceiptValidator.Demo
             #if UNITY_IOS
 			    extensions.GetExtension<IAppleExtensions>().RestoreTransactions((result, message) => { DebugLogText(Color.white, "RestoreTransactions result: " + result + ". Message: " + message); });
             #else
-                ReceiptValidator.Instance.RequestRestore();
+                IAPGuard.Instance.RequestRestore();
             #endif
         }
 

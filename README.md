@@ -1,14 +1,14 @@
-# Receipt Validator SDK
+# IAPGUARD Unity SDK
 
 <p align="center">
   <img src="Images/logo_160x160.png" />
 </p>
 
-A sample project for the Unity game engine, that contains fully working in-app purchase implementations including server-side receipt validation for the Apple App Store and Google Play. The [Receipt Validator Service](https://flobuk.com/validator) is a fully hosted solution, so you do not have to manage your own server or keep track of transactions and App Store API changes. The service offers a FREE plan to get started. 
+A sample project for the Unity game engine, that contains fully working in-app purchase implementations including server-side receipt validation for the Apple App Store and Google Play. The [IAPGUARD Service](https://iapguard.com) is a fully hosted solution, so you do not have to manage your own server or keep track of transactions and App Store API changes. The platform offers a FREE plan to get started. 
 
 **Requirements:**
-- You have created a free account on the [Receipt Validator Service](https://flobuk.com/validator)
-- You have created a new app in the Receipt Validator dashboard
+- You have created a free account on the [IAPGUARD Platform](https://iapguard.com)
+- You have created a new app in the IAPGUARD Dashboard
 - You should have set up your app and products on the App Store(s) already prior to running this project
 
 ## Table of Contents
@@ -43,9 +43,7 @@ Because this project uses both local and server-side validation, follow the next
 
 ![Unity-Setup020](Images/Unity-Setup020.png)
 
-:::note
-You can now scroll back up and turn off the In App Purchases service again! This does not affect purchasing in any way, it just prevents sending analytics to Unity in case you do not intend to use that.
-:::
+> **NOTE:** You can now scroll back up and turn off the In App Purchases service again! This does not affect purchasing in any way, it just prevents sending analytics to Unity in case you do not intend to use that.
 
 ## Installation
 
@@ -61,7 +59,7 @@ If you wish to use your own products in the `Demo` scene, select the `IAPManager
 
 ![Unity-Demo020](Images/Unity-Demo020.png)
 
-Likewise, select the `ReceiptValidator` game object and enter your own **App ID** from the Receipt Validator Service. 
+Likewise, select the `IAPGuard` game object and enter your own **App ID** from the IAPGUARD platform. 
 
 ![Unity-Demo030](Images/Unity-Demo030.png)
 
@@ -71,7 +69,7 @@ Since the Unity Editor does not have any connection to App Stores, you are not a
 
 > **PLEASE NOTE:** Guides on how to upload your application to the App Stores, or creating test users for Sandbox purchasing is out of scope for this document. If you need help with that, please contact us (see [Support](#support)). 
 
-When running on a real device you will be able to fully test all purchase validation workflows. Press the **SHOW LOG** button to display an informative console about web requests. In the following screenshot, a consumable and non-consumable product have been bought and validated. If you make use of the Receipt Validator's User Inventory feature, the non-consumable product will be returned for that user in subsequent app launches as well.
+When running on a real device you will be able to fully test all purchase validation workflows. Press the **SHOW LOG** button to display an informative console about web requests. In the following screenshot, a consumable and non-consumable product have been bought and validated. If you make use of IAPGUARD's User Inventory feature, the non-consumable product will be returned for that user in subsequent app launches as well.
 
 ![Unity-Demo040](Images/Unity-Demo040.png)
 
@@ -84,58 +82,58 @@ You can either rewrite the `IAPManager` script to fit into your game coding, or 
 
 It is recommended to save successful purchases in an encrypted file locally, so you can access them at any time and players can also use them when playing offline.
 
-**ReceiptValidator:**
-The `ReceiptValidator` script offers a **purchaseCallback** event for the web response as well - when using your own `IAPManager`, it should subscribe to this. Also, an **inventoryCallback** event that returns active purchases. If you are making use of the Receipt Validator User Inventory feature, you would subscribe to this event after player authentication and `ReceiptValidator` initialization, call *ReceiptValidator.RequestInventory()* and act on the products and status it returns. In this demo, if enabled (requires paid plan), the `UIDemo` script checks User Inventory and sets the purchase status of the products accordingly.
+**IAPGuard:**
+The `IAPGuard` script offers a **purchaseCallback** event for the web response as well - when using your own `IAPManager`, it should subscribe to this. Also, an **inventoryCallback** event that returns active purchases. If you are making use of IAPGUARD's User Inventory feature, you would subscribe to this event after player authentication and `IAPGuard` initialization, call *IAPGuard.RequestInventory()* and act on the products and status it returns. In this demo, if enabled (requires paid plan), the `UIDemo` script checks User Inventory and sets the purchase status of the products accordingly.
 
 ### Existing Project
 
 For an integration in an existing project that already implements Unity IAP, the following points need to be done:
 
-1. Instantiate the ReceiptValidator prefab
-2. Initialize the ReceiptValidator component (`Initialize`)
+1. Instantiate the IAPGuard prefab
+2. Initialize the IAPGuard component (`Initialize`)
 3. Extend the ProcessPurchase method with validation (`RequestPurchase`)
-4. Link the ReceiptValidator's purchaseCallback Action
+4. Link IAPGuard's purchaseCallback Action
 5. (optional) Add User Inventory (`RequestInventory`, `GetInventory`)
 6. Add a way to let users restore their transactions (`RequestRestore`)
 
 ---
-1. Place the `Prefabs > ReceiptValidator` prefab into the first scene of your application. It calls DontDestroyOnLoad on itself and therefore persists across scene changes, but is not initialized until you do so.
+1. Place the `Prefabs > IAPGuard` prefab into the first scene of your application. It calls DontDestroyOnLoad on itself and therefore persists across scene changes, but is not initialized until you do so.
 
 2. In your Unity IAP handler's code:
 
    - add the asset's namespace at the top:
       ```md
-      using FLOBUK.ReceiptValidator;
+      using FLOBUK.IAPGUARD;
       ```
    - when you call `ConfigurationBuilder.Instance` to create a store module, save a reference to the ConfigurationBuilder in a variable as we will need it in the next step. In the IAPManagerDemo script, this is done in Initialize().
-   - in your `OnInitialized` implementation, initialize the ReceiptValidator component by passing in the IStoreController and ConfigurationBuilder reference stored previously:
+   - in your `OnInitialized` implementation, initialize the IAPGuard component by passing in the IStoreController and ConfigurationBuilder reference stored previously:
       ```md
-      ReceiptValidator.Instance.Initialize(controller, builder);
+      IAPGuard.Instance.Initialize(controller, builder);
       ```
 
-3. In your `ProcessPurchase` implementation, pass the received product for validation to the ReceiptValidator and get its PurchaseState:
+3. In your `ProcessPurchase` implementation, pass the received product for validation to IAPGUARD and get its PurchaseState:
       ```md
-      PurchaseState state = ReceiptValidator.Instance.RequestPurchase(product);
+      PurchaseState state = IAPGuard.Instance.RequestPurchase(product);
       ```
 
-    If the PurchaseState is `Pending`, it is important that you return `PurchaseProcessingResult.Pending` to keep the transaction open. If the transaction was processed, we will receive a callback from the ReceiptValidator in the next step. Otherwise, the transaction was completed. You will then want to reward the user in case the PurchaseState is `Purchased` (not in case it is `Failed`) and return `PurchaseProcessingResult.Complete`.
+    If the PurchaseState is `Pending`, it is important that you return `PurchaseProcessingResult.Pending` to keep the transaction open. If the transaction was processed, we will receive a callback from IAPGUARD in the next step. Otherwise, the transaction was completed. You will then want to reward the user in case the PurchaseState is `Purchased` (not in case it is `Failed`) and return `PurchaseProcessingResult.Complete`.
 
-4. In the previous step, we already rewarded the user if the transaction was complete. However, we only handled the Unity IAP part, in case the Receipt Validator was not used. Now, we have to implement the Receipt Validator callback when finishing a transaction too. In `OnInitialized`, below the initialization call add:
+4. In the previous step, we already rewarded the user if the transaction was complete. However, we only handled the Unity IAP part, in case IAPGUARD was not used. Now, we have to implement the IAPGUARD callback when finishing a transaction too. In `OnInitialized`, below the initialization call add:
       ```md
-      ReceiptValidator.purchaseCallback += OnPurchaseResult;
+      IAPGuard.purchaseCallback += OnPurchaseResult;
       ```
     
     To keep things simple, in the IAPManager demo script we defined a separate `OnPurchaseResult` method that is also used in the `ProcessPurchase` implementation. This means that both interfaces call the same method to reward the user.
 
-5. **PAID PLAN ONLY:** if you make use of user authentication and inventory, the user's purchases are stored in the backend. To retrieve them, on the ReceiptValidator prefab set the `Inventory Request Type` to a value other than `Disabled` and add the following line at the end of `OnInitialized`:
+5. **PAID PLAN ONLY:** if you make use of user authentication and inventory, a user's purchases are stored in the backend. To retrieve them, on the IAPGuard prefab set the `Inventory Request Type` to a value other than `Disabled` and add the following line at the end of `OnInitialized`:
 
       ```md
-      ReceiptValidator.Instance.RequestInventory();
+      IAPGuard.Instance.RequestInventory();
       ```
 
-    You can either retrieve the inventory by subscribing to the `ReceiptValidator.inventoryCallback` action or by calling `ReceiptValidator.Instance.GetInventory()` manually later.
+    You can either retrieve the inventory by subscribing to the `IAPGuard.inventoryCallback` action or by calling `IAPGuard.Instance.GetInventory()` manually later.
     
-6. You will want to allow users to manually restore their purchases and re-sync them with the Receipt Validator backend, in case they switch devices, user IDs or lost their local storage in other ways. Add the below method and let the user call it manually.
+6. You will want to allow users to manually restore their purchases and re-sync them with the IAPGUARD backend, in case they switch devices, user IDs or lost their local storage in other ways. Add the below method and let the user call it manually.
 
       ```md
       public void RestoreTransactions()
@@ -143,7 +141,7 @@ For an integration in an existing project that already implements Unity IAP, the
         #if UNITY_IOS
           extensions.GetExtension<IAppleExtensions>().RestoreTransactions(null);
         #else
-          ReceiptValidator.Instance.RequestRestore();
+          IAPGuard.Instance.RequestRestore();
         #endif
       }
       ```
@@ -163,4 +161,4 @@ in addition to built-in support for server-side receipt validation, is available
 
 ## Support
 
-This plugin was specifically designed to be used in combination with the [Receipt Validator Service](https://flobuk.com/validator). For integration assistance or questions about the Service, please open a ticket at the **Support** tab in the Receipt Validator dashboard.
+This asset was specifically designed to be used in combination with [IAPGUARD](https://iapguard.com). For integration assistance or questions about the Service, please open a **Support ticket** within the IAPGUARD Dashboard.
