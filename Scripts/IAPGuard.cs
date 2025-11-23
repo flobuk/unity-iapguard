@@ -136,10 +136,20 @@ namespace FLOBUK.IAPGUARD
                 www.SetRequestHeader("content-type", "application/json");
                 yield return www.SendWebRequest();
 
-                //raw JSON response
-                JSONNode rawResponse = JSON.Parse(www.downloadHandler.text);
-                JSONArray purchaseArray = rawResponse["purchases"].AsArray;
+                JSONArray purchaseArray = new JSONArray();
 
+                //try to convert raw response to JSON
+                try
+                {
+                    JSONNode rawResponse = JSON.Parse(www.downloadHandler.text);
+                    purchaseArray = rawResponse["purchases"].AsArray;
+                }
+                catch (Exception)
+                {
+                    if (Debug.isDebugBuild)
+                        Debug.LogWarning("IAPGUARD: Inventory Request failed due to unexpected response.");
+                }
+                
                 //populate dictionary with server PurchaseResponses
                 inventory.Clear();
                 for (int i = 0; i < purchaseArray.Count; i++)
@@ -255,12 +265,9 @@ namespace FLOBUK.IAPGUARD
                 yield break;
             }
 
-            //refresh reference as according to Unity they become stale after async delays
-            Order currentOrder = controller.GetPurchases().FirstOrDefault(p => p.CartOrdered.Items().First().Product.definition.id == product.definition.id);
-
             //once we have done the validation in our backend, we confirm the order status
-            if (currentOrder != null && currentOrder is PendingOrder)
-                controller.ConfirmPurchase(currentOrder as PendingOrder);
+            if (order is PendingOrder)
+                controller.ConfirmPurchase(order as PendingOrder);
         }
 
 

@@ -3199,7 +3199,10 @@ MonoBehaviour:
     m_HorizontalOverflow: 0
     m_VerticalOverflow: 0
     m_LineSpacing: 1
-  m_Text: Please test on a mobile device. Editor purchases do not generate any receipts.
+  m_Text: 'Please test on a mobile device.
+
+    Editor purchases do not generate
+    any receipts.'
 --- !u!222 &1716972542
 CanvasRenderer:
   m_ObjectHideFlags: 0
