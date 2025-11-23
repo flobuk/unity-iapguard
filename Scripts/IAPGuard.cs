@@ -1,9 +1,10 @@
-﻿using SimpleJSON;
-using System;
+﻿using System;
+using System.Linq;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Networking;
+using SimpleJSON;
 
 namespace FLOBUK.IAPGUARD
 {
@@ -11,20 +12,36 @@ namespace FLOBUK.IAPGUARD
     using UnityEngine.Purchasing.Security;
 
     /// <summary>
-    /// IAPGUARD implementation.
+    /// IAPGUARD SDK. Integrate with your Unity IAP manager.
     /// Does local and then server validation for your in-app purchases.
     /// </summary>
     public class IAPGuard : MonoBehaviour
     {
-        private static IAPGuard _Instance;
-        public static event Action inventoryCallback;
-        public static event Action<bool, JSONNode> purchaseCallback;
+        /// <summary>
+        /// Reference to this manager instance.
+        /// </summary>
+        public static IAPGuard Instance { get; private set; }
+        
+        /// <summary>
+        /// Callback from receipt validation request.
+        /// bool = success true/false, Product = requested Product, JSONNode = raw server JSON
+        /// </summary>
+        public static event Action<bool, Product, JSONNode> validationCallback;
 
-        const string validationEndpoint = "https://api.iapguard.com/v1/receipt/";
-        const string userEndpoint = "https://api.iapguard.com/v1/user/";
+        /// <summary>
+        /// Callback from user inventory request.
+        /// string = Product Id, PurchaseResponse = server data
+        /// </summary>
+        public static event Action<Dictionary<string, PurchaseResponse>> inventoryCallback;
+
+        private const string validationEndpoint = "https://api.iapguard.com/v1/receipt/";
+        private const string inventoryEndpoint = "https://api.iapguard.com/v1/user/";
+        private const string lastInventoryTimestampKey = "fbrv_inventory_timestamp";
 
         [Header("General Data")]
+        [Tooltip("The 16-character application ID from the IAPGUARD dashboard.")]
         public string appID;
+        [Tooltip("User identifier set from your Authentication system when using User Inventory.")]
         public string userID;
 
         [Header("User Inventory is not supported on the Free plan.", order = 0)]
@@ -32,60 +49,42 @@ namespace FLOBUK.IAPGUARD
         [Header("Inventory", order = 2)]
         public InventoryRequestType inventoryRequestType = InventoryRequestType.Disabled;
 
-        Dictionary<string, PurchaseResponse> inventory = new Dictionary<string, PurchaseResponse>();
-
-        CrossPlatformValidator localValidator = null;
-        IStoreController controller;
-        ConfigurationBuilder builder;
-
-        const string lastInventoryTimestampKey = "fbrv_inventory_timestamp";
-        float lastInventoryTime = -1;
-        bool inventoryRequestActive = false;
-        int inventoryDelay = 1800;
+        private Dictionary<string, PurchaseResponse> inventory = new Dictionary<string, PurchaseResponse>();
+        private CrossPlatformValidator localValidator = null;
+        private StoreController controller;
+        private float lastInventoryTime = -1;
+        private bool inventoryRequestActive = false;
+        private int inventoryDelay = 1800;
 
 
-        /// <summary>
-        /// Return the Singleton Instance.
-        /// </summary>
-        public static IAPGuard Instance
-        {
-            get
-            {
-                if (_Instance == null)
-                {
-                    GameObject obj = new GameObject("IAPGuard");
-                    _Instance = obj.AddComponent<IAPGuard>();
-                }
-
-                return _Instance;
-            }
-        }
-
-
+        //create a persistent script instance
         void Awake()
         {
-            if (_Instance != null)
+            //make sure we keep one instance of this script
+            if (Instance)
             {
                 Destroy(gameObject);
+                return;
             }
-
             DontDestroyOnLoad(gameObject);
-            _Instance = this;
+
+            //set static reference
+            Instance = this;
         }
 
 
         /// <summary>
         /// Initialize the component by passing in a reference to Unity IAP.
         /// </summary>
-        public void Initialize(IStoreController controller, ConfigurationBuilder builder)
+        public void Initialize(StoreController controller)
         {
             this.controller = controller;
-            this.builder = builder;
+            controller.OnPurchasesFetched += _ => RequestInventory();
 
             if (IsLocalValidationSupported())
             {
                 #if !UNITY_EDITOR
-                    localValidator = new CrossPlatformValidator(GooglePlayTangle.Data(), AppleTangle.Data(), Application.identifier);
+                    localValidator = new CrossPlatformValidator(GooglePlayTangle.Data(), Application.identifier);
                 #endif
             }
         }
@@ -101,22 +100,26 @@ namespace FLOBUK.IAPGUARD
             {
                 if (Debug.isDebugBuild && inventoryRequestType != InventoryRequestType.Disabled)
                     Debug.LogWarning("IAPGUARD: CanRequestInventory returned false.");
-                
+
                 return;
             }
 
             //server validation is not supported on this platform, so no inventory is stored either or requests exceeded
             if (controller == null || !IsServerValidationSupported())
             {
-                if (Debug.isDebugBuild) Debug.LogWarning("IAPGUARD: Inventory Request not supported.");
+                if (Debug.isDebugBuild)
+                    Debug.LogWarning("IAPGUARD: Inventory Request not supported.");
+
                 return;
             }
 
             //no purchase detected on this account, RequestInventory call is not necessary and was cancelled
             //if you are sure that this account has purchased products, instruct the user to initiate a restore first
-            if (!HasActiveReceipt() && !HasPurchaseHistory())
+            if (!HasPurchaseActive() && !HasPurchaseHistory())
             {
-                if(Debug.isDebugBuild) Debug.LogWarning("IAPGUARD: Inventory Request not necessary.");
+                if (Debug.isDebugBuild)
+                    Debug.LogWarning("IAPGUARD: Inventory Request not necessary.");
+
                 return;
             }
 
@@ -125,9 +128,10 @@ namespace FLOBUK.IAPGUARD
         }
 
 
-        IEnumerator RequestInventoryRoutine()
+        //actual inventory HTTP routine
+        private IEnumerator RequestInventoryRoutine()
         {
-            using (UnityWebRequest www = UnityWebRequest.Get(userEndpoint + appID + "/" + userID))
+            using (UnityWebRequest www = UnityWebRequest.Get(inventoryEndpoint + appID + "/" + userID))
             {
                 www.SetRequestHeader("content-type", "application/json");
                 yield return www.SendWebRequest();
@@ -136,6 +140,7 @@ namespace FLOBUK.IAPGUARD
                 JSONNode rawResponse = JSON.Parse(www.downloadHandler.text);
                 JSONArray purchaseArray = rawResponse["purchases"].AsArray;
 
+                //populate dictionary with server PurchaseResponses
                 inventory.Clear();
                 for (int i = 0; i < purchaseArray.Count; i++)
                 {
@@ -147,14 +152,14 @@ namespace FLOBUK.IAPGUARD
 
             lastInventoryTime = Time.realtimeSinceStartup;
             inventoryRequestActive = false;
-            inventoryCallback?.Invoke();
+            inventoryCallback?.Invoke(inventory);
         }
 
 
         /// <summary>
         /// Request validation of a newly bought or restored product receipt.
         /// </summary>
-        public PurchaseState RequestPurchase(Product product)
+        public PurchaseState RequestPurchase(PendingOrder order)
         {
             //assume that the purchase is valid as default
             PurchaseState state = PurchaseState.Purchased;
@@ -164,8 +169,8 @@ namespace FLOBUK.IAPGUARD
                 return state;
             }
 
-            //nothing to validate without receipt
-            if (!product.hasReceipt)
+            //nothing to validate without receipt            
+            if (string.IsNullOrEmpty(order.Info.TransactionID))
             {
                 return PurchaseState.Failed;
             }
@@ -173,14 +178,14 @@ namespace FLOBUK.IAPGUARD
             //if local validation is supported it could return otherwise
             if (IsLocalValidationSupported() && localValidator != null)
             {
-                state = LocalValidation(product);
+                state = LocalValidation(order);
             }
-            
+
             //local validation was not supported or it passed as valid
             //now do the server validation, if supported and keep transaction pending
-            if(state == PurchaseState.Purchased && IsServerValidationSupported())
+            if (state == PurchaseState.Purchased && IsServerValidationSupported())
             {
-                StartCoroutine(RequestPurchaseRoutine(product));
+                StartCoroutine(RequestPurchaseRoutine(order));
                 return PurchaseState.Pending;
             }
 
@@ -190,42 +195,29 @@ namespace FLOBUK.IAPGUARD
         }
 
 
-        IEnumerator RequestPurchaseRoutine(Product product)
+        //actual receipt validation HTTP routine
+        private IEnumerator RequestPurchaseRoutine(Order order)
         {
             //if the app is closed during this time, ProcessPurchase will be
             //called again for the same purchase once the app is opened again
-
-            JSONNode receiptData = JSON.Parse(product.receipt);
-            string transactionID = receiptData["TransactionID"].Value;
-
-            #if UNITY_IOS
-            IPurchaseReceipt[] receipts = localValidator.Validate(product.receipt);
-            foreach (AppleInAppPurchaseReceipt receipt in receipts)
-            {
-                if (product.definition.id != receipt.productID)
-                    continue;
-
-                transactionID = receipt.transactionID;
-                break;
-            }
-            #endif
+            Product product = order.CartOrdered.Items().First().Product;
 
             ReceiptRequest request = new ReceiptRequest()
             {
-                store = receiptData["Store"].Value,
+                store = DefaultStoreHelper.GetDefaultStoreName(),
                 bid = Application.identifier,
                 pid = product.definition.storeSpecificId,
                 user = userID,
                 type = GetType(product.definition.type),
-                receipt = transactionID
+                receipt = order.Info.TransactionID
             };
-            string postData = JsonUtility.ToJson(request);
 
+            string postData = JsonUtility.ToJson(request);
             JSONNode rawResponse = null;
             bool success = false;
-            using (UnityWebRequest www = UnityWebRequest.Put(validationEndpoint + appID, postData))
+
+            using (UnityWebRequest www = UnityWebRequest.Post(validationEndpoint + appID, postData, "application/json"))
             {
-                www.SetRequestHeader("content-type", "application/json");
                 yield return www.SendWebRequest();
 
                 //raw JSON response
@@ -237,7 +229,8 @@ namespace FLOBUK.IAPGUARD
                 catch
                 {
                     //there might be an configuration issue since the response was not valid JSON, transaction will not be finished
-                    if (Debug.isDebugBuild) Debug.LogWarning("IAPGUARD Validation failed for: '" + product.definition.storeSpecificId + "'.\n" + www.downloadHandler.text);
+                    if (Debug.isDebugBuild)
+                        Debug.LogWarning("IAPGUARD Validation failed for: '" + product.definition.storeSpecificId + "'.\n" + www.downloadHandler.text);
                 }
 
                 if (success)
@@ -253,7 +246,7 @@ namespace FLOBUK.IAPGUARD
                     else inventory.Add(productId, thisPurchase); //add new to inventory
                 }
 
-                purchaseCallback?.Invoke(success, rawResponse);
+                validationCallback?.Invoke(success, product, rawResponse);
             }
 
             //do not complete pending purchases but still leave them open for processing again later
@@ -262,8 +255,12 @@ namespace FLOBUK.IAPGUARD
                 yield break;
             }
 
-            //once we have done the validation in our backend, we update the purchase status
-            controller.ConfirmPendingPurchase(product);
+            //refresh reference as according to Unity they become stale after async delays
+            Order currentOrder = controller.GetPurchases().FirstOrDefault(p => p.CartOrdered.Items().First().Product.definition.id == product.definition.id);
+
+            //once we have done the validation in our backend, we confirm the order status
+            if (currentOrder != null && currentOrder is PendingOrder)
+                controller.ConfirmPurchase(currentOrder as PendingOrder);
         }
 
 
@@ -282,47 +279,20 @@ namespace FLOBUK.IAPGUARD
         }
 
 
-        IEnumerator RequestRestoreRoutine()
+        //actual restore HTTP routine
+        //internally this does a purchase validation with existing receipts
+        private IEnumerator RequestRestoreRoutine()
         {
-            foreach (Product product in controller.products.all)
+            foreach (Order order in controller.GetPurchases())
             {
-                if (product.definition.type == ProductType.Consumable || !product.hasReceipt || inventory.ContainsKey(product.definition.id))
+                Product product = order.CartOrdered.Items().First().Product;
+
+                if (product.definition.type == ProductType.Consumable || string.IsNullOrEmpty(order.Info.TransactionID) || inventory.ContainsKey(product.definition.id))
                     continue;
 
-                StartCoroutine(RequestPurchaseRoutine(product));
+                StartCoroutine(RequestPurchaseRoutine(order));
                 yield return new WaitForSecondsRealtime(UnityEngine.Random.Range(2f, 5f));
             }
-        }
-
-
-        /// <summary>
-        /// Return current user inventory stored in memory.
-        /// </summary>
-        public Dictionary<string, PurchaseResponse> GetInventory()
-        {
-            return inventory;
-        }
-
-
-        /// <summary>
-        /// Return whether a product is purchased or not by checking user inventory received earlier.
-        /// Since there is no inventory on the Free plan or with inventory disabled, it checks for a local product receipt instead.
-        /// </summary>
-        public bool IsPurchased(string productId)
-        {
-            if (inventoryRequestType == InventoryRequestType.Disabled)
-            {
-                if (controller == null) return false;
-                else return controller.products.WithID(productId).hasReceipt;
-            }
-
-            int[] purchaseStates = new int[] { 0, 1, 4 };
-            if (inventory.ContainsKey(productId) && Array.Exists(purchaseStates, x => x == inventory[productId].status))
-            {
-                return true;
-            }
-
-            return false;
         }
 
 
@@ -369,8 +339,34 @@ namespace FLOBUK.IAPGUARD
             return true;
         }
 
+        
+        /// <summary>
+        /// Return current user inventory stored in memory.
+        /// </summary>
+        public Dictionary<string, PurchaseResponse> GetInventory()
+        {
+            return inventory;
+        }
 
-        void SetPurchaseHistory()
+
+        /// <summary>
+        /// Return whether a product is included in user inventory received earlier.
+        /// Otherwise returns false on the Free plan or with inventory disabled since there is no inventory.
+        /// </summary>
+        public bool IsOwned(string productId)
+        {
+            int[] purchaseStates = new int[] { 0, 1, 4 };
+            if (inventoryRequestType != InventoryRequestType.Disabled && inventory.ContainsKey(productId) && Array.Exists(purchaseStates, x => x == inventory[productId].status))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+
+        //saves a PlayerPref if the last user inventory response contained values
+        private void SetPurchaseHistory()
         {
             if (PlayerPrefs.HasKey(lastInventoryTimestampKey) && inventory.Count == 0)
             {
@@ -385,7 +381,8 @@ namespace FLOBUK.IAPGUARD
         }
 
 
-        bool HasPurchaseHistory()
+        //check whether inventory requests returned values within the past month
+        private bool HasPurchaseHistory()
         {
             if (!PlayerPrefs.HasKey(lastInventoryTimestampKey))
                 return false;
@@ -403,54 +400,19 @@ namespace FLOBUK.IAPGUARD
         }
 
 
-        bool HasActiveReceipt()
+        //check whether Unity IAP returned purchases from the App Store
+        private bool HasPurchaseActive()
         {
-            bool hasReceipt = false;
-
-            #if UNITY_ANDROID
-                foreach (Product product in controller.products.all)
-                {
-                    if (product.definition.type != ProductType.Consumable && product.hasReceipt)
-                    {
-                        hasReceipt = true;
-                        break;
-                    }
-                }
-            #elif UNITY_IOS
-                IAppleConfiguration appleConfig = builder.Configure<IAppleConfiguration>();
-                if (string.IsNullOrEmpty(appleConfig.appReceipt)) return false;
-                byte[] appReceipt = Convert.FromBase64String(appleConfig.appReceipt);
-                AppleReceipt appleReceipt = new AppleValidator(AppleTangle.Data()).Validate(appReceipt);
-
-                if(appleReceipt.inAppPurchaseReceipts.Length > 0)
-                {
-                    foreach(AppleInAppPurchaseReceipt receipt in appleReceipt.inAppPurchaseReceipts)
-                    {
-                        switch(receipt.productType)
-                        {
-                            case 0: //NonConsumable
-                            case 2: //Non-Renewing Subscription
-                                if (receipt.cancellationDate == DateTime.MinValue) hasReceipt = true;
-                                break;
-                            case 3: //Auto-Renewing Subscription
-                                if (receipt.subscriptionExpirationDate != DateTime.MinValue) hasReceipt = true;
-                                break;
-                        }
-
-                        if (hasReceipt == true) break;
-                    }
-                }
-            #endif
-
-            return hasReceipt;
+            return controller.GetPurchases().Count > 0;
         }
 
 
-        PurchaseState LocalValidation(Product product)
+        //does local validation for receipt format on Google Play
+        private PurchaseState LocalValidation(Order order)
         {
             try
             {
-                IPurchaseReceipt[] result = localValidator.Validate(product.receipt);
+                IPurchaseReceipt[] result = localValidator.Validate(order.Info.Receipt);
 
                 foreach (IPurchaseReceipt receipt in result)
                 {
@@ -466,7 +428,7 @@ namespace FLOBUK.IAPGUARD
 
                 return PurchaseState.Purchased;
             }
-            //if the purchase is deemed invalid, the validator throws an exception
+            //if the receipt is deemed invalid, the validator throws an exception
             catch (IAPSecurityException)
             {
                 return PurchaseState.Failed;
@@ -474,7 +436,8 @@ namespace FLOBUK.IAPGUARD
         }
 
 
-        string GetType(ProductType type)
+        //format ProductType to expected string
+        private string GetType(ProductType type)
         {
             switch (type)
             {
@@ -488,38 +451,27 @@ namespace FLOBUK.IAPGUARD
         }
 
 
-        static bool IsLocalValidationSupported()
+        //check whether product receipts can be validated locally
+        private bool IsLocalValidationSupported()
         {
-            AppStore currentAppStore = StandardPurchasingModule.Instance().appStore;
-
-            //The CrossPlatform validator only supports the GooglePlayStore and Apple's App Stores.
-            if (currentAppStore == AppStore.GooglePlay ||
-               currentAppStore == AppStore.AppleAppStore || currentAppStore == AppStore.MacAppStore)
+            //The CrossPlatform validator only supports the GooglePlayStore.
+            if (Application.platform == RuntimePlatform.Android && DefaultStoreHelper.GetDefaultStoreName() == GooglePlay.Name)
                 return true;
 
             return false;
         }
 
 
-        static bool IsServerValidationSupported()
+        //check whether product receipts can be validated on the IAPGUARD platform
+        private bool IsServerValidationSupported()
         {
-            AppStore currentAppStore = StandardPurchasingModule.Instance().appStore;
+            string currentAppStore = DefaultStoreHelper.GetDefaultStoreName();
 
-            //IAPGUARD only supports the GooglePlayStore and Apple's App Stores.
-            if (currentAppStore == AppStore.GooglePlay ||
-               currentAppStore == AppStore.AppleAppStore || currentAppStore == AppStore.MacAppStore)
-                return true;
-
-            return false;
-        }
-
-
-        void OnDestroy()
-        {
-            if (_Instance == this)
-            {
-                _Instance = null;
-            }
+            //This SDK only supports receipt validation on Google Play and the Apple App Store.
+            return Application.platform == RuntimePlatform.Android && currentAppStore == GooglePlay.Name ||
+                   Application.platform == RuntimePlatform.IPhonePlayer ||
+                   Application.platform == RuntimePlatform.OSXPlayer ||
+                   Application.platform == RuntimePlatform.tvOS;
         }
     }
 
@@ -536,7 +488,7 @@ namespace FLOBUK.IAPGUARD
 
 
     /// <summary>
-    /// State of the purchase with local validation.
+    /// State of the purchase after local validation.
     /// </summary>
     public enum PurchaseState
     {
@@ -548,6 +500,7 @@ namespace FLOBUK.IAPGUARD
 
     /// <summary>
     /// Parameters required for a server-side validation request.
+    /// See https://docs.iapguard.com/api/rest#validate-receipt
     /// </summary>
     [System.Serializable]
     struct ReceiptRequest
@@ -563,21 +516,32 @@ namespace FLOBUK.IAPGUARD
 
     /// <summary>
     /// Response parameters received from a server-side validation request.
+    /// See https://docs.iapguard.com/api/rest#validate-receipt
     /// </summary>
     [System.Serializable]
     public struct PurchaseResponse
     {
         public int status;
         public string type;
-        public long expiresDate;
-        public bool autoRenew;
-        public bool billingRetry;
+        public long? expiresDate;
+        public bool? autoRenew;
+        public int? cancelReason;
+        public bool? billingRetry;
         public string productId;
+        public string groupId;
         public bool sandbox;
 
         public override string ToString()
         {
-            return $"ProductId:{productId}, Status:{status}, Type:{type}, ExpiresDate:{expiresDate}, AutoRenew:{autoRenew}, BillingRetry:{billingRetry}, Sandbox:{sandbox}";
+            string result = $"ProductId:{productId}, Status:{status}, Type:{type}, Sandbox:{sandbox}";
+
+            if (expiresDate.HasValue) result += $", ExpiresDate:{expiresDate.Value}";
+            if (autoRenew.HasValue) result += $", AutoRenew:{autoRenew.Value}";
+            if (cancelReason.HasValue) result += $", CancelReason:{cancelReason.Value}";
+            if (billingRetry.HasValue) result += $", BillingRetry:{billingRetry.Value}";
+            if (!string.IsNullOrEmpty(groupId)) result += $", GroupId:{groupId}";
+
+            return result;
         }
     }
 }

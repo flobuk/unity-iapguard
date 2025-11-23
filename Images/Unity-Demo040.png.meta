@@ -94,3 +94,10 @@ TextureImporter:
   userData: 
   assetBundleName: 
   assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 217706
+  packageName: IAPGUARD - In App Purchase (IAP) Receipt Validation
+  packageVersion: 1.4.0
+  assetPath: Assets/IAPGuard/Images/Unity-Demo040.png
+  uploadId: 805496

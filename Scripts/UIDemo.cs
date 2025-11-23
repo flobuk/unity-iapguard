@@ -1,4 +1,5 @@
-using System.Collections;
+using System;
+using System.Linq;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -6,28 +7,37 @@ using SimpleJSON;
 
 namespace FLOBUK.IAPGUARD.Demo
 {
+    using UnityEngine.Purchasing;
+
     /// <summary>
-    /// Displays Server and Validation responses.
+    /// UI demo script for purchasing products and displaying server validation responses.
     /// </summary>
     public class UIDemo : MonoBehaviour
     {
-        //display of purchased state or amount
-        [Header("Purchased Flags")]
-        public GameObject NonConsumableFlag;
-        public GameObject SubscriptionFlag;
+        /// <summary>
+        /// List of product flags that indicate when a product is owned.
+        /// </summary>
+        public List<ProductFlag> flags = new List<ProductFlag>();
 
-        //display of system and server messages
-        public ScrollRect LogScroll;
+        /// <summary>
+        /// Log for system and server messages.
+        /// </summary>
         public Text LogText;
-        //notice when running on non-mobile platforms
+
+        /// <summary>
+        /// Notice when running on non-mobile platforms.
+        /// </summary>
         public GameObject EditorText;
-        //feedback window
+
+        /// <summary>
+        /// Feedback window for the user.
+        /// </summary>
         public GameObject InfoWindow;
+
+        /// <summary>
+        /// Text that is displayed in the Feedback window.
+        /// </summary>
         public Text InfoText;
-
-        int processingPurchasesCount;
-
-        private IAPManager instance;
 
 
         void Start()
@@ -36,134 +46,163 @@ namespace FLOBUK.IAPGUARD.Demo
                 EditorText.SetActive(false);
             #endif
 
-            //get instance
-            instance = IAPManager.GetInstance();
-            if (!instance) return;
+            //required instances not available
+            if (!IAPManager.Instance || !IAPGuard.Instance) return;
 
             //subscribe to callbacks
+            IAPManager.debugCallback += PrintLog;
+            IAPManager.initializeSucceededEvent += UpdatePurchased;
+            IAPManager.Instance.controller.OnCheckEntitlement += OnCheckEntitlement;
+            IAPManager.purchaseSucceededEvent += OnPurchaseSucceeded;
+            IAPManager.purchaseFailedEvent += OnPurchaseFailed;
             IAPGuard.inventoryCallback += InventoryRetrieved;
-            IAPManager.purchaseCallback += PurchaseResult;
-            IAPManager.debugCallback += PrintMessage;
+        }
 
-            UpdateUI();
+
+        /// <summary>
+        /// Buy method triggering Unity IAP
+        /// </summary>
+        public void Buy(string productId)
+        {
+            IAPManager.Instance.Purchase(productId);
+        }
+
+
+        /// <summary>
+        /// Trigger sending receipts to the IAPGUARD backend again
+        /// </summary>
+        public void RestoreTransactions()
+        {
+            IAPManager.Instance.RestoreTransactions();
         }
 
 
         //IAPGuard.inventoryCallback
-        void InventoryRetrieved()
+        private void InventoryRetrieved(Dictionary<string, PurchaseResponse> inventory)
         {
-            PrintMessage(Color.green, "Inventory retrieved.");
+            PrintLog(Color.green, "Inventory retrieved.");
 
-            Dictionary<string, PurchaseResponse> inventory = IAPGuard.Instance.GetInventory();
-            foreach (string productID in inventory.Keys)
-                PrintMessage(Color.white, productID + ": " + inventory[productID].ToString());
-
-            UpdateUI();
-        }
-
-
-        //buy buttons for different product types
-        public void BuyConsumable() { Buy(instance.consumableProductId); }
-        public void BuyNonconsumable() { Buy(instance.nonconsumableProductId); }
-        public void BuySubscription() { Buy(instance.subscriptionProductId); }
-
-
-        //buy method triggering Unity IAP
-        void Buy(string productId)
-        {
-            processingPurchasesCount++;
-            PrintMessage(Color.white, "Purchase Processing Count: " + processingPurchasesCount);
-            UpdateUI();
-
-            instance.controller.InitiatePurchase(productId);
-        }
-
-
-        //trigger sending receipts to the IAPGUARD backend again
-        public void RestoreTransactions()
-        {
-            IAPManager.GetInstance().RestoreTransactions();
-        }
-
-
-        //IAPManagerDemo.purchaseCallback
-        //result is JSONNode or null
-        void PurchaseResult(bool success, JSONNode result)
-        {
-            processingPurchasesCount--;
-            processingPurchasesCount = Mathf.Clamp(processingPurchasesCount, 0, int.MaxValue);
-
-            //Log output
-            switch (success)
+            //do something with the inventory
+            foreach (string productId in inventory.Keys)
             {
-                case true:
-                    PrintMessage(Color.green, "Purchase validation success!");
-                    break;
-
-                case false:
-                    PrintMessage(Color.red, "Purchase validation failed.");
-                    break;
+                PrintLog(Color.white, productId + ": " + inventory[productId].ToString());
             }
+
+            //or query each product separately
+            UpdatePurchased();
+        }
+
+
+        //IAPManager.purchaseSucceededEvent
+        private void OnPurchaseSucceeded(Product product, JSONNode serverData, bool isNew)
+        {
+            if (serverData != null)
+            {
+                PrintLog(Color.green, "Purchase validation success!");
+                PrintLog(Color.white, "Raw: " + serverData.ToString());
+            }
+
+            //show for new purchases, not for restores
+            if (isNew == true)
+            {
+                //UI feedback window
+                InfoText.text = "Product purchase: " + product.definition.id;
+                InfoText.text += "\n" + "Purchase success";
+                InfoWindow.SetActive(true);
+            }
+
+            SetPurchasedState(product.definition.id, true);
+        }
+
+
+        //IAPManager.purchaseFailedEvent
+        private void OnPurchaseFailed(Product product, string error)
+        {
+            PrintLog(Color.red, "Purchase validation failed.");
+            PrintLog(Color.white, "Raw: " + error);
 
             //UI feedback window
+            InfoText.text = "Product purchase: " + (product != null ? product.definition.id : "Unknown");
+            InfoText.text += "\n" + "Purchase failed: " + error;
             InfoWindow.SetActive(true);
-
-            if (result != null)
-            {
-                PrintMessage(Color.white, "Raw: " + result.ToString());
-
-                InfoText.text = "Product purchase: " + result["data"]["productId"];
-                InfoText.text += "\n" + "Purchase result: " + success;
-                InfoText.text += "\n\n" + "See Log for more information!";
-            }
-            else
-                InfoText.text = "Purchase cancelled.";
-
-            PrintMessage(Color.white, "Purchase Processing Count: " + processingPurchasesCount);
-            UpdateUI();
         }
 
 
-        //message display
-        void PrintMessage(Color color, string text)
+        //IAPManager.initializeSucceededEvent or manual
+        //update product purchase flags in the UI
+        private void UpdatePurchased()
+        {
+            for (int i = 0; i < flags.Count; i++)
+            {
+                bool? isOwned = IAPManager.Instance.IsPurchased(flags[i].id);
+                if (isOwned.HasValue) SetPurchasedState(flags[i].id, isOwned.Value);
+            }
+        }
+
+
+        //StoreController.OnCheckEntitlement
+        private void OnCheckEntitlement(Entitlement entitlement)
+        {
+            //make sure we have a product
+            Product product = entitlement.Product;
+            if (product == null)
+            {
+                try
+                { product = entitlement.Order.CartOrdered.Items().FirstOrDefault().Product; }
+                catch (Exception)
+                { }
+            }
+
+            //still not set
+            if (product == null)
+                return;
+
+            SetPurchasedState(entitlement.Product.definition.id, entitlement.Status == EntitlementStatus.FullyEntitled);
+        }
+
+
+        //finds corresponding purchase flag and sets purchase state in UI
+        private void SetPurchasedState(string productId, bool isPurchased)
+        {
+            for (int i = 0; i < flags.Count; i++)
+            {
+                if (flags[i].id == productId)
+                {
+                    flags[i].flag.SetActive(isPurchased);
+                    break;
+                }
+            }
+        }
+
+
+        //log display
+        private void PrintLog(Color color, string text)
         {
             LogText.text += "\n\n" + "<color=#" + ColorUtility.ToHtmlStringRGB(color) + ">" + text + "</color>";
         }
 
 
-        //set log scroll rect to bottom
-        public void ForceScrollDown()
+        //unsubscribe callbacks
+        void OnDestroy()
         {
-            StartCoroutine(ForceScrollDownRoutine());
+            IAPManager.debugCallback -= PrintLog;
+            IAPManager.initializeSucceededEvent -= UpdatePurchased;
+            IAPManager.Instance.controller.OnCheckEntitlement -= OnCheckEntitlement;
+            IAPManager.purchaseSucceededEvent -= OnPurchaseSucceeded;
+            IAPManager.purchaseFailedEvent -= OnPurchaseFailed;
+            IAPGuard.inventoryCallback -= InventoryRetrieved;
         }
+    }
 
 
-        IEnumerator ForceScrollDownRoutine()
-        {
-            yield return new WaitForEndOfFrame();
-            LogScroll.verticalNormalizedPosition = 0f;
-            Canvas.ForceUpdateCanvases();
-        }
+    /// <summary>
+    /// Mapping between product Id and UI owned flag.
+    /// </summary>
+    [System.Serializable]
+    public class ProductFlag
+    {
+        public string id;
 
-
-        //try to get inventory
-        public void GetInventory()
-        {
-            if(!IAPGuard.Instance.CanRequestInventory())
-            {
-                PrintMessage(Color.red, "Inventory call is not possible. If you are on a paid plan, check your selected Inventory Request Type.");
-                return;
-            }
-
-            IAPGuard.Instance.RequestInventory();
-        }
-
-
-        //update graphical display of text contents with current states
-        void UpdateUI()
-        {
-            NonConsumableFlag.SetActive(IAPGuard.Instance.IsPurchased(instance.nonconsumableProductId));
-            SubscriptionFlag.SetActive(IAPGuard.Instance.IsPurchased(instance.subscriptionProductId));
-        }
+        public GameObject flag;
     }
 }

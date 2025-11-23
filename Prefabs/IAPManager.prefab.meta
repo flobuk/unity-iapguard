@@ -1,6 +1,6 @@
 fileFormatVersion: 2
-guid: 431ba4435e5bb7f438807001c7059f91
-TextScriptImporter:
+guid: 113b7db5152884382bcedcc0effeff72
+PrefabImporter:
   externalObjects: {}
   userData: 
   assetBundleName: 
@@ -10,5 +10,5 @@ AssetOrigin:
   productId: 217706
   packageName: IAPGUARD - In App Purchase (IAP) Receipt Validation
   packageVersion: 1.4.0
-  assetPath: Assets/IAPGuard/README.md
+  assetPath: Assets/IAPGuard/Prefabs/IAPManager.prefab
   uploadId: 805496
